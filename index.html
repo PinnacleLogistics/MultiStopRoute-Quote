@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Route Optimizer and Multi-Stop Quote</title>
+    <style>
+        #map {
+            height: 400px;
+            width: 100%;
+        }
+        .error {
+            color: red;
+        }
+        .highlight-green {
+            background-color: lightgreen;
+        }
+        .highlight-orange {
+            background-color: orange;
+        }
+        #spinner {
+            display: none;
+            margin-top: 10px;
+        }
+        .hidden {
+            display: none;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background-color: #f0f0f0; /* Very light gray background color */
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: black; /* Black text color */
+        }
+        .manual-input {
+            background-color: #d4edda; /* Light green background */
+        }
+        .calculated-input {
+            background-color: #ffeeba; /* Light orange background */
+            display: none; /* Hidden by default */
+        }
+        .required-star::after {
+            content: " *";
+            color: red;
+        }
+        input {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #D4AF37; /* Gold color */
+            color: black; /* Black text color */
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #b8860b; /* Darker gold color */
+        }
+    </style>
+</head>
+<body>
+    <h1>Route Optimizer</h1>
+    <label for="pickup">Pickup Location:</label>
+    <input type="text" id="pickup" placeholder="Enter pickup location"><br><br>
+    <label for="destinations">Destinations (one per line):</label><br>
+    <textarea id="destinations" rows="10" cols="50" placeholder="Enter each destination on a new line"></textarea><br><br>
+    <button onclick="calculateRoute()">Calculate Route</button>
+    <div id="spinner">Calculating route, please wait...</div>
+    <div id="results" class="hidden">
+        <h2>Results</h2>
+        <p>Total Miles: <span id="total-distance" class="highlight-green"></span></p>
+        <p>Total Transit: <span id="total-time"></span></p>
+        <p>1 Pick 1 Drop Mileage to Final Destination Only: <span id="direct-distance" class="highlight-orange"></span></p>
+        <h2>Optimized Route</h2>
+        <ul id="route-segments"></ul>
+        <div id="final-destination-section"></div>
+        <p>Route Map URL: <a id="route-url" href="#" target="_blank"></a></p>
+        <div id="map"></div>
+        <div id="error" class="error"></div>
+    </div>
+
+    <h1>Multi-Stop Quote</h1>
+    <form id="plugin-form">
+        <div class="form-group">
+            <label for="pickup-city" class="required-star">Pickup City, ST</label>
+            <input type="text" id="pickup-city" name="pickup-city" class="manual-input">
+        </div>
+        <div class="form-group">
+            <label for="delivery-city" class="required-star">Delivery City, ST</label>
+            <input type="text" id="delivery-city" name="delivery-city" class="manual-input">
+        </div>
+        <div class="form-group">
+            <label for="one-p1d-mileage" class="required-star">1p1d Mileage</label>
+            <input type="number" id="one-p1d-mileage" name="one-p1d-mileage" class="manual-input">
+        </div>
+        <div class="form-group">
+            <label for="one-p1d-dat-rate" class="required-star">1p1d DAT rate</label>
+            <input type="number" id="one-p1d-dat-rate" name="one-p1d-dat-rate" class="manual-input">
+        </div>
+        <div class="form-group">
+            <label for="driver-assist-cost" class="required-star">Driver Assist Cost</label>
+            <input type="number" id="driver-assist-cost" name="driver-assist-cost" class="manual-input" value="200">
+        </div>
+        <div class="form-group">
+            <label for="number-of-stops" class="required-star">Number of Stops</label>
+            <input type="number" id="number-of-stops" name="number-of-stops" class="manual-input">
+        </div>
+        <div class="form-group">
+            <label for="total-miles" class="required-star">Total miles for all stops</label>
+            <input type="number" id="total-miles" name="total-miles" class="manual-input">
+        </div>
+        <div class="form-group">
+            <label for="rpm" class="required-star">RPM for Additional Miles</label>
+            <input type="number" id="rpm" name="rpm" class="manual-input" value="2.25">
+        </div>
+        <div class="form-group">
+            <label for="additional-rate-per-stop" class="required-star">Additional Rate per extra stop (1st one free)</label>
+            <input type="number" id="additional-rate-per-stop" name="additional-rate-per-stop" class="manual-input" value="100">
+        </div>
+        <div class="form-group">
+            <label for="markup" class="required-star">Markup %</label>
+            <input type="number" id="markup" name="markup" class="manual-input" value="20">
+        </div>
+        <div class="form-group calculated-input">
+            <label for="additional-miles">Additional Miles compared to 1p1d</label>
+            <input type="number" id="additional-miles" name="additional-miles" readonly>
+        </div>
+        <div class="form-group calculated-input">
+            <label for="total-cost">Total Cost</label>
+            <input type="text" id="total-cost" name="total-cost" readonly>
+        </div>
+        <div class="form-group calculated-input">
+            <label for="total-rate">Total Rate to Customer</label>
+            <input type="text" id="total-rate" name="total-rate" readonly>
+        </div>
+        <button type="button" onclick="calculate()">Calculate</button>
+        <button type="button" onclick="resetForm()">Reset</button>
+    </form>
+
+    <script>
+        // Initialize Google Maps
+        let map;
+        let directionsService;
+        let directionsRenderer;
+
+        function initMap() {
+            map = new google.maps.Map(document.getElementById('map'), {
+                zoom: 7,
+                center: { lat: 37.77, lng: -122.42 }
+            });
+
+            directionsService = new google.maps.DirectionsService();
+            directionsRenderer = new google.maps.DirectionsRenderer();
+            directionsRenderer.setMap(map);
+        }
+
+        function formatLocation(location) {
+            const parts = location.split(',').map(part => part.trim());
+            if (parts.length === 3) {
+                const [city, state] = parts;
+                return `${capitalizeWords(city)}, ${state.toUpperCase()}`;
+            } else if (parts.length === 2) {
+                const [city, state] = parts;
+                return `${capitalizeWords(city)}, ${state.toUpperCase()}`;
+            }
+            return capitalizeWords(location);
+        }
+
+        function capitalizeWords(str) {
+            return str.replace(/\b\w/g, char => char.toUpperCase());
+        }
+
+        function formatDistance(distanceInMeters) {
+            return (distanceInMeters / 1609.34).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + ' mi';
+        }
+
+        function formatTravelTime(durationInSeconds) {
+            const hours = Math.floor(durationInSeconds / 3600);
+            const minutes = Math.round((durationInSeconds % 3600) / 60);
+            return `${hours}h ${minutes}m`;
+        }
+
+        function showSpinner() {
+            document.getElementById('spinner').style.display = 'block';
+            document.getElementById('results').classList.add('hidden');
+        }
+
+        function hideSpinner() {
+            document.getElementById('spinner').style.display = 'none';
+            document.getElementById('results').classList.remove('hidden');
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('results').classList.add('hidden');
+        });
+
+        async function calculateRoute() {
+            showSpinner();
+
+            const pickup = document.getElementById('pickup').value;
+            const destinations = document.getElementById('destinations').value.split('\n').filter(dest => dest.trim() !== '');
+            const errorDiv = document.getElementById('error');
+            const routeSegmentsList = document.getElementById('route-segments');
+
+            if (!pickup || destinations.length === 0) {
+                errorDiv.textContent = 'Please enter both pickup location and at least one destination.';
+                hideSpinner();
+                return;
+            }
+
+            errorDiv.textContent = ''; // Clear previous errors
+            routeSegmentsList.innerHTML = ''; // Clear previous results
+
+            const waypoints = destinations.map(destination => ({ location: destination, stopover: true }));
+            let bestRoute = null;
+            let bestTime = Infinity;
+            let bestOrder = [];
+            let finalDestination = "";
+
+            for (let i = 0; i < destinations.length; i++) {
+                const destination = destinations[i];
+                const otherWaypoints = waypoints.slice(0, i).concat(waypoints.slice(i + 1));
+
+                const request = {
+                    origin: pickup,
+                    destination: destination,
+                    waypoints: otherWaypoints,
+                    travelMode: 'DRIVING',
+                    optimizeWaypoints: true
+                };
+
+                try {
+                    const result = await new Promise((resolve, reject) => {
+                        directionsService.route(request, function(result, status) {
+                            if (status === 'OK') {
+                                resolve(result);
+                            } else {
+                                reject(status);
+                            }
+                        });
+                    });
+
+                    const route = result.routes[0];
+                    let totalTime = 0;
+                    route.legs.forEach(leg => {
+                        totalTime += leg.duration.value;
+                    });
+
+                    if (totalTime < bestTime) {
+                        bestTime = totalTime;
+                        bestRoute = result;
+                        bestOrder = result.routes[0].waypoint_order.slice();
+                        finalDestination = destination;
+                    }
+                } catch (error) {
+                    console.error('Error calculating route:', error);
+                    errorDiv.textContent = `Error calculating route: ${error}`;
+                    hideSpinner();
+                    return;
+                }
+            }
+
+            if (bestRoute) {
+                directionsRenderer.setDirections(bestRoute);
+
+                const route = bestRoute.routes[0];
+                let totalDistance = 0;
+                let totalTime = 0;
+
+                route.legs.forEach(leg => {
+                    totalDistance += leg.distance.value;
+                    totalTime += leg.duration.value;
+                });
+
+                try {
+                    const directRequest = {
+                        origin: pickup,
+                        destination: finalDestination,
+                        travelMode: 'DRIVING'
+                    };
+
+                    const directResult = await new Promise((resolve, reject) => {
+                        directionsService.route(directRequest, function(result, status) {
+                            if (status === 'OK') {
+                                resolve(result);
+                            } else {
+                                reject(status);
+                            }
+                        });
+                    });
+
+                    if (directResult) {
+                        const directLeg = directResult.routes[0].legs[0];
+                        document.getElementById('direct-distance').textContent = formatDistance(directLeg.distance.value);
+                        document.getElementById('one-p1d-mileage').value = formatDistance(directLeg.distance.value).replace(' mi', '');
+                    } else {
+                        errorDiv.textContent = 'Error calculating direct route.';
+                    }
+                } catch (error) {
+                    console.error('Error calculating direct route:', error);
+                    errorDiv.textContent = `Error calculating direct route: ${error}`;
+                    hideSpinner();
+                    return;
+                }
+
+                document.getElementById('total-distance').textContent = formatDistance(totalDistance);
+                document.getElementById('total-miles').value = formatDistance(totalDistance).replace(' mi', '');
+                document.getElementById('number-of-stops').value = destinations.length;
+
+                document.getElementById('total-time').textContent = formatTravelTime(totalTime);
+
+                const waypoints = [];
+                route.legs.forEach((leg, index) => {
+                    const startLocation = formatLocation(leg.start_address);
+                    const endLocation = formatLocation(leg.end_address);
+                    const distance = formatDistance(leg.distance.value);
+                    const duration = formatTravelTime(leg.duration.value);
+
+                    const legText = index === 0 
+                        ? `Pickup: ${startLocation} - ${distance} - ${duration} to next stop`
+                        : `Delivery ${index}: ${startLocation} - ${distance} - ${duration} to next stop`;
+                    if (index > 0) {
+                        waypoints.push(encodeURIComponent(startLocation));
+                    }
+
+                    const li = document.createElement('li');
+                    li.textContent = legText;
+                    routeSegmentsList.appendChild(li);
+                });
+
+                const finalDestinationSection = document.getElementById('final-destination-section');
+                const lastLeg = route.legs[route.legs.length - 1];
+                const finalDestinationText = `Delivery ${route.legs.length}: ${formatLocation(lastLeg.end_address)}`;
+                finalDestinationSection.innerHTML = `
+                    <ul><li>${finalDestinationText}</li></ul>
+                `;
+
+                const waypointsString = waypoints.join('|');
+                const routeUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(pickup)}&destination=${encodeURIComponent(finalDestination)}&waypoints=${waypointsString}`;
+                const routeLink = document.getElementById('route-url');
+                routeLink.href = routeUrl;
+                routeLink.textContent = routeUrl;
+
+            } else {
+                errorDiv.textContent = 'Error finding the best route.';
+            }
+
+            hideSpinner();
+        }
+
+        // Multi-Stop Quote Calculation
+        function formatCurrency(value) {
+            return `$${value.toLocaleString()}`;
+        }
+
+        function calculate() {
+            const oneP1dMileage = parseFloat(document.getElementById('one-p1d-mileage').value) || 0;
+            const totalMiles = parseFloat(document.getElementById('total-miles').value) || 0;
+            const oneP1dDatRate = parseFloat(document.getElementById('one-p1d-dat-rate').value) || 0;
+            const driverAssistCost = parseFloat(document.getElementById('driver-assist-cost').value) || 200;
+            const rpm = parseFloat(document.getElementById('rpm').value) || 2.25;
+            const numberOfStops = parseInt(document.getElementById('number-of-stops').value) || 0;
+            const additionalRatePerStop = parseFloat(document.getElementById('additional-rate-per-stop').value) || 100;
+            const markup = parseFloat(document.getElementById('markup').value) || 20;
+
+            const additionalMiles = totalMiles - oneP1dMileage;
+            document.getElementById('additional-miles').value = additionalMiles;
+
+            const additionalCost = additionalMiles * rpm;
+            const extraStopsCost = (numberOfStops > 1) ? (numberOfStops - 1) * additionalRatePerStop : 0;
+            const totalCost = oneP1dDatRate + additionalCost + extraStopsCost + driverAssistCost;
+            document.getElementById('total-cost').value = formatCurrency(Math.round(totalCost));
+
+            const totalRate = totalCost * (1 + markup / 100);
+            document.getElementById('total-rate').value = formatCurrency(Math.round(totalRate));
+
+            // Show the calculated fields
+            const calculatedFields = document.getElementsByClassName('calculated-input');
+            for (let field of calculatedFields) {
+                field.style.display = 'block';
+            }
+        }
+
+        function resetForm() {
+            document.getElementById('plugin-form').reset();
+
+            // Hide the calculated fields
+            const calculatedFields = document.getElementsByClassName('calculated-input');
+            for (let field of calculatedFields) {
+                field.style.display = 'none';
+            }
+        }
+    </script>
+    <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyA3r0p1kyloJSECy3wk1tUQS8cAyTomxfY&callback=initMap"></script>
+</body>
+</html>
